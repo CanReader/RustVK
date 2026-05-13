@@ -1,0 +1,25 @@
+[package]
+name = "rust-vk"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+ash = "0.38"
+winit = "0.30"
+raw-window-handle = "0.6"
+ash-window = "0.13"
+cgmath = "0.18"
+bytemuck = { version = "1", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+# nothing extra needed
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = true
