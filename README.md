@@ -8,7 +8,7 @@ Right now it renders a lit rotating cube with Blinn-Phong shading, 4x MSAA, and 
 
 ## Preview
 
-> Screenshot coming soon.
+![RustVK screenshot](screenshot.png)
 
 ---
 
