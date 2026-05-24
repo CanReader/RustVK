@@ -128,15 +128,45 @@ layout(binding = 0) uniform UBO {
 
 ---
 
-## Roadmap
+## What's next
 
+**Geometry & assets**
 - [ ] glTF model loading
-- [ ] PBR (metallic-roughness)
-- [ ] Shadow mapping
-- [ ] Normal maps
-- [ ] Multiple lights
-- [ ] ImGui for scene controls
+- [ ] Texture loading (diffuse, normal, roughness maps)
+- [ ] Mip map generation
+- [ ] Instanced rendering
+- [ ] Skybox / cubemap
+
+**Lighting & shading**
+- [ ] PBR (metallic-roughness workflow)
+- [ ] Image-based lighting (IBL)
+- [ ] Multiple point lights
+- [ ] Directional light
+- [ ] Normal mapping
+- [ ] Gamma correction + HDR tone mapping
+
+**Shadows**
+- [ ] Basic shadow mapping
+- [ ] Cascaded shadow maps (CSM)
+- [ ] Percentage-closer filtering (PCF)
+
+**Post-processing**
+- [ ] Bloom
+- [ ] SSAO (screen-space ambient occlusion)
+- [ ] TAA (temporal anti-aliasing)
+- [ ] Motion blur
+
+**Architecture**
 - [ ] Render graph
+- [ ] Bindless textures
+- [ ] GPU-driven rendering (indirect draw)
+- [ ] Compute shaders
+- [ ] Ray tracing (VK_KHR_ray_tracing)
+
+**Developer tools**
+- [ ] ImGui integration
+- [ ] RenderDoc markers
+- [ ] GPU timestamps / frame profiling
 
 ---
 
