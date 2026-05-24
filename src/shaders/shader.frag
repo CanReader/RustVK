@@ -3,14 +3,15 @@
 layout(location = 0) in vec3 fragPos;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec3 fragColor;
+layout(location = 3) in float fragMetallic;
+layout(location = 4) in float fragRoughness;
+layout(location = 5) in float fragTransmission;
 
 layout(binding = 0) uniform UBO {
     mat4 model;
     mat4 view;
     mat4 proj;
     vec4 viewPos;
-    vec4 albedoMetallic;
-    vec4 roughnessAO;
     vec4 pointLightPos[4];
     vec4 pointLightColor[4];
     vec4 lightCounts;
@@ -22,7 +23,6 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
-// GGX normal distribution function
 float D_GGX(float NdotH, float roughness) {
     float a  = roughness * roughness;
     float a2 = a * a;
@@ -30,29 +30,25 @@ float D_GGX(float NdotH, float roughness) {
     return a2 / (PI * d * d);
 }
 
-// Schlick-GGX geometry term (single direction)
 float G_Schlick(float NdotV, float roughness) {
     float r = roughness + 1.0;
     float k = (r * r) / 8.0;
     return NdotV / (NdotV * (1.0 - k) + k);
 }
 
-// Smith's combined geometry
 float G_Smith(float NdotV, float NdotL, float roughness) {
     return G_Schlick(NdotV, roughness) * G_Schlick(NdotL, roughness);
 }
 
-// Fresnel-Schlick
 vec3 F_Schlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// Cook-Torrance BRDF contribution for one light direction L and incoming radiance.
-// Returns outgoing radiance toward V.
+// Cook-Torrance BRDF. transmission reduces diffuse so glass passes light through.
 vec3 cookTorrance(
-    vec3 N, vec3 V, vec3 L,
-    vec3 albedo, float metallic, float roughness,
-    vec3 radiance
+    vec3  N, vec3 V, vec3 L,
+    vec3  albedo, float metallic, float roughness, float transmission,
+    vec3  radiance
 ) {
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= 0.0) return vec3(0.0);
@@ -62,13 +58,15 @@ vec3 cookTorrance(
     float NdotH = max(dot(N, H), 0.0);
     float HdotV = max(dot(H, V), 0.0);
 
+    // Glass: F0 = 0.04 (IOR ≈ 1.5), metals use albedo as F0
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
     float D = D_GGX(NdotH, roughness);
     float G = G_Smith(NdotV, NdotL, roughness);
     vec3  F = F_Schlick(HdotV, F0);
 
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    // Transmission absorbs the diffuse lobe — glass lets light through
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic) * (1.0 - transmission);
 
     vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
 
@@ -76,10 +74,10 @@ vec3 cookTorrance(
 }
 
 void main() {
-    vec3  albedo    = ubo.albedoMetallic.rgb * fragColor;
-    float metallic  = ubo.albedoMetallic.w;
-    float roughness = ubo.roughnessAO.x;
-    float ao        = ubo.roughnessAO.y;
+    vec3  albedo       = fragColor;
+    float metallic     = fragMetallic;
+    float roughness    = fragRoughness;
+    float transmission = fragTransmission;
 
     vec3 N = normalize(fragNormal);
     vec3 V = normalize(ubo.viewPos.xyz - fragPos);
@@ -98,22 +96,23 @@ void main() {
         float dist2   = dot(toLight, toLight);
         vec3  L       = normalize(toLight);
 
-        // Physically correct inverse-square falloff
         vec3 radiance = lcolor * intensity / dist2;
-
-        Lo += cookTorrance(N, V, L, albedo, metallic, roughness, radiance);
+        Lo += cookTorrance(N, V, L, albedo, metallic, roughness, transmission, radiance);
     }
 
     if (hasDirLight) {
-        vec3  L         = normalize(-ubo.dirLightDir.xyz);
+        vec3  L        = normalize(-ubo.dirLightDir.xyz);
         float intensity = ubo.dirLightDir.w;
         vec3  radiance  = ubo.dirLightColor.xyz * intensity;
-
-        Lo += cookTorrance(N, V, L, albedo, metallic, roughness, radiance);
+        Lo += cookTorrance(N, V, L, albedo, metallic, roughness, transmission, radiance);
     }
 
-    vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 color   = ambient + Lo;
+    // Glass spheres gather ambient through their volume — boost it by transmission
+    // so they glow softly with their tint color in unlit areas.
+    float ambientStr = 0.03 + transmission * 0.18;
+    vec3  ambient    = ambientStr * albedo;
+
+    vec3 color = ambient + Lo;
 
     // Reinhard tone mapping
     color = color / (color + vec3(1.0));

@@ -10,13 +10,10 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
-use std::time::Instant;
-
 struct App {
     window:   Option<Window>,
     renderer: Option<VulkanRenderer>,
     scene:    Scene,
-    start:    Instant,
 }
 
 impl App {
@@ -24,8 +21,7 @@ impl App {
         Self {
             window:   None,
             renderer: None,
-            scene:    Scene::cube(),
-            start:    Instant::now(),
+            scene:    Scene::spheres(),
         }
     }
 }
@@ -36,11 +32,13 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let attrs = Window::default_attributes()
+        let attrs = Window::default_attributes() 
             .with_title("RustVK")
-            .with_inner_size(winit::dpi::LogicalSize::new(1280u32, 720u32));
+            .with_inner_size(winit::dpi::LogicalSize::new(1920u32, 1080u32)).with_blur(true).with_active(true);
 
         let window = event_loop.create_window(attrs).expect("Failed to create window");
+
+        log::info!("The window has been created successfully!");
 
         match VulkanRenderer::new(&window) {
             Ok(r) => self.renderer = Some(r),
@@ -50,6 +48,8 @@ impl ApplicationHandler for App {
                 return;
             }
         }
+
+        log::info!("The vulkan renderer has been created successfully!");
 
         self.window = Some(window);
     }
@@ -73,9 +73,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                // Rotate the cube; camera stays fixed.
-                let elapsed = self.start.elapsed().as_secs_f32();
-                self.scene.model_rotation = elapsed * 0.8;
+                // Static scene — no model rotation applied.
 
                 if let Some(r) = self.renderer.as_mut() {
                     if let Err(e) = r.render(&self.scene) {

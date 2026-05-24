@@ -64,6 +64,21 @@ impl VulkanPipeline {
                 format: vk::Format::R32G32B32_SFLOAT,
                 offset: 24,
             },
+            vk::VertexInputAttributeDescription {
+                location: 3, binding: 0,
+                format: vk::Format::R32_SFLOAT,
+                offset: 36,
+            },
+            vk::VertexInputAttributeDescription {
+                location: 4, binding: 0,
+                format: vk::Format::R32_SFLOAT,
+                offset: 40,
+            },
+            vk::VertexInputAttributeDescription {
+                location: 5, binding: 0,
+                format: vk::Format::R32_SFLOAT,
+                offset: 44,
+            },
         ];
 
         let vertex_input = vk::PipelineVertexInputStateCreateInfo {

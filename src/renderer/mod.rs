@@ -116,11 +116,11 @@ impl VulkanRenderer {
         let render_pass  = VulkanRenderPass::new(&device, swapchain.format, depth_buffer.format)?;
         let command_pool = VulkanCommandPool::new(&device, MAX_FRAMES_IN_FLIGHT)?;
 
-        let cube        = Scene::cube();
-        let index_count = cube.indices.len() as u32;
+        let init_scene  = Scene::spheres();
+        let index_count = init_scene.indices.len() as u32;
 
-        let vertex_buffer = VulkanBuffer::new_vertex(&device, &command_pool, &cube.vertices)?;
-        let index_buffer  = VulkanBuffer::new_index(&device, &command_pool, &cube.indices)?;
+        let vertex_buffer = VulkanBuffer::new_vertex(&device, &command_pool, &init_scene.vertices)?;
+        let index_buffer  = VulkanBuffer::new_index(&device, &command_pool, &init_scene.indices)?;
 
         let ubo_size = size_of::<UniformBufferObject>();
         let uniform_buffers: Vec<VulkanBuffer> = (0..MAX_FRAMES_IN_FLIGHT)
@@ -326,15 +326,12 @@ impl VulkanRenderer {
             None => (0.0, [0f32; 4], [0f32; 4]),
         };
 
-        let m = &scene.material;
         let cp = scene.camera.position;
         let ubo = UniformBufferObject {
             model:             matrix4_to_array(model),
             view:              matrix4_to_array(view),
             proj:              matrix4_to_array(proj),
             view_pos:          [cp.x, cp.y, cp.z, 0.0],
-            albedo_metallic:   [m.albedo[0], m.albedo[1], m.albedo[2], m.metallic],
-            roughness_ao:      [m.roughness, m.ao, 0.0, 0.0],
             point_light_pos,
             point_light_color,
             light_counts:      [num_point as f32, has_dir, 0.0, 0.0],
@@ -355,7 +352,7 @@ impl VulkanRenderer {
         unsafe { self.device.device.begin_command_buffer(cb, &begin_info)? };
 
         let clear_values = [
-            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] } },
+            vk::ClearValue { color: vk::ClearColorValue { float32: [0.03, 0.05, 0.12, 1.0] } },
             vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
         ];
 
