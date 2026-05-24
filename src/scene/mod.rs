@@ -130,7 +130,10 @@ fn add_floor(
         Vertex { position: [ s, y,  s], normal: n, color, metallic: 0.0, roughness, transmission: 0.0 },
         Vertex { position: [-s, y,  s], normal: n, color, metallic: 0.0, roughness, transmission: 0.0 },
     ]);
-    idxs.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    // Vertices are laid out far-left, far-right, near-right, near-left.
+    // Camera is above looking down, so "far" projects to screen-top and "near" to screen-bottom.
+    // The natural 0-1-2 order is CW in screen space (culled). Reverse each triangle.
+    idxs.extend_from_slice(&[base, base + 2, base + 1, base, base + 3, base + 2]);
 }
 
 impl Scene {
@@ -158,7 +161,9 @@ impl Scene {
         for &(center, radius, color) in spheres {
             add_sphere(
                 center, radius, color,
-                0.0, 0.0, 0.95,
+                0.0,  // metallic  — glass is a dielectric
+                0.08, // roughness — small but non-zero; roughness=0 zeroes the GGX NDF
+                0.85, // transmission
                 32, 32,
                 &mut vertices, &mut indices,
             );
@@ -180,17 +185,17 @@ impl Scene {
                 PointLight {
                     position:  [6.0, 8.0, 5.0],
                     color:     [1.0, 0.95, 0.85],
-                    intensity: 400.0,
+                    intensity: 600.0,
                 },
                 PointLight {
                     position:  [-5.0, 3.0, 2.0],
                     color:     [0.5, 0.7, 1.0],
-                    intensity: 150.0,
+                    intensity: 250.0,
                 },
                 PointLight {
                     position:  [2.0, -2.0, -6.0],
                     color:     [0.9, 0.3, 1.0],
-                    intensity: 80.0,
+                    intensity: 120.0,
                 },
             ],
             dir_light: Some(DirectionalLight {

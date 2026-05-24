@@ -76,7 +76,7 @@ vec3 cookTorrance(
 void main() {
     vec3  albedo       = fragColor;
     float metallic     = fragMetallic;
-    float roughness    = fragRoughness;
+    float roughness    = max(fragRoughness, 0.04); // roughness=0 makes a2=0 → NDF=0/0
     float transmission = fragTransmission;
 
     vec3 N = normalize(fragNormal);
