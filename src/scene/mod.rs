@@ -8,9 +8,23 @@ pub struct Vertex {
     pub color:    [f32; 3],
 }
 
-pub struct Light {
-    pub position: [f32; 3],
-    pub color:    [f32; 3],
+pub struct PointLight {
+    pub position:  [f32; 3],
+    pub color:     [f32; 3],
+    pub intensity: f32,
+}
+
+pub struct DirectionalLight {
+    pub direction: [f32; 3],
+    pub color:     [f32; 3],
+    pub intensity: f32,
+}
+
+pub struct Material {
+    pub albedo:    [f32; 3],
+    pub metallic:  f32,
+    pub roughness: f32,
+    pub ao:        f32,
 }
 
 pub struct Camera {
@@ -23,54 +37,65 @@ pub struct Camera {
     pub far:      f32,
 }
 
+pub const MAX_POINT_LIGHTS: usize = 4;
+
+// std140-compatible UBO. Each row is a vec4 (16 bytes).
+// point_light_pos[i]   = (x, y, z, intensity)
+// point_light_color[i] = (r, g, b, unused)
+// light_counts         = (numPointLights, hasDirLight, unused, unused)
+// dir_light_dir        = (x, y, z, intensity)
+// dir_light_color      = (r, g, b, unused)
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct UniformBufferObject {
-    pub model:       [[f32; 4]; 4],
-    pub view:        [[f32; 4]; 4],
-    pub proj:        [[f32; 4]; 4],
-    pub light_pos:   [f32; 3],
-    pub _pad0:       f32,
-    pub light_color: [f32; 3],
-    pub _pad1:       f32,
-    pub view_pos:    [f32; 3],
-    pub _pad2:       f32,
+    pub model:             [[f32; 4]; 4],                   // offset 0
+    pub view:              [[f32; 4]; 4],                   // offset 64
+    pub proj:              [[f32; 4]; 4],                   // offset 128
+    pub view_pos:          [f32; 4],                        // offset 192
+    pub albedo_metallic:   [f32; 4],                        // offset 208
+    pub roughness_ao:      [f32; 4],                        // offset 224
+    pub point_light_pos:   [[f32; 4]; MAX_POINT_LIGHTS],    // offset 240
+    pub point_light_color: [[f32; 4]; MAX_POINT_LIGHTS],    // offset 304
+    pub light_counts:      [f32; 4],                        // offset 368
+    pub dir_light_dir:     [f32; 4],                        // offset 384
+    pub dir_light_color:   [f32; 4],                        // offset 400
 }
 
 pub struct Scene {
     pub vertices:       Vec<Vertex>,
     pub indices:        Vec<u32>,
     pub camera:         Camera,
-    pub light:          Light,
-    pub model_rotation: f32, // radians, updated each frame
+    pub material:       Material,
+    pub point_lights:   Vec<PointLight>,
+    pub dir_light:      Option<DirectionalLight>,
+    pub model_rotation: f32,
 }
 
 impl Scene {
     pub fn cube() -> Self {
-        // All faces use the same solid white albedo; lighting provides all the variation.
         let faces: &[([f32; 3], [[f32; 3]; 4])] = &[
             (
-                [0.0,  0.0,  1.0],  // +Z front
+                [0.0,  0.0,  1.0],
                 [[-0.5,-0.5, 0.5],[ 0.5,-0.5, 0.5],[ 0.5, 0.5, 0.5],[-0.5, 0.5, 0.5]],
             ),
             (
-                [0.0,  0.0, -1.0],  // -Z back
+                [0.0,  0.0, -1.0],
                 [[ 0.5,-0.5,-0.5],[-0.5,-0.5,-0.5],[-0.5, 0.5,-0.5],[ 0.5, 0.5,-0.5]],
             ),
             (
-                [-1.0, 0.0,  0.0],  // -X left
+                [-1.0, 0.0,  0.0],
                 [[-0.5,-0.5,-0.5],[-0.5,-0.5, 0.5],[-0.5, 0.5, 0.5],[-0.5, 0.5,-0.5]],
             ),
             (
-                [ 1.0, 0.0,  0.0],  // +X right
+                [ 1.0, 0.0,  0.0],
                 [[ 0.5,-0.5, 0.5],[ 0.5,-0.5,-0.5],[ 0.5, 0.5,-0.5],[ 0.5, 0.5, 0.5]],
             ),
             (
-                [0.0,  1.0,  0.0],  // +Y top
+                [0.0,  1.0,  0.0],
                 [[-0.5, 0.5, 0.5],[ 0.5, 0.5, 0.5],[ 0.5, 0.5,-0.5],[-0.5, 0.5,-0.5]],
             ),
             (
-                [0.0, -1.0,  0.0],  // -Y bottom
+                [0.0, -1.0,  0.0],
                 [[-0.5,-0.5,-0.5],[ 0.5,-0.5,-0.5],[ 0.5,-0.5, 0.5],[-0.5,-0.5, 0.5]],
             ),
         ];
@@ -105,10 +130,34 @@ impl Scene {
                 near:     0.1,
                 far:      100.0,
             },
-            light: Light {
-                position: [4.0, 5.0, 3.0],
-                color:    [1.0, 0.95, 0.85], // warm white
+            material: Material {
+                albedo:    [0.8, 0.8, 0.82],
+                metallic:  0.95,
+                roughness: 0.2,
+                ao:        1.0,
             },
+            point_lights: vec![
+                PointLight {
+                    position:  [5.0,  8.0,  4.0],
+                    color:     [1.0,  0.9,  0.7],
+                    intensity: 200.0,
+                },
+                PointLight {
+                    position:  [-4.0, 2.0, -3.0],
+                    color:     [0.5,  0.7,  1.0],
+                    intensity: 80.0,
+                },
+                PointLight {
+                    position:  [0.0, -4.0, -5.0],
+                    color:     [1.0,  0.4,  0.8],
+                    intensity: 50.0,
+                },
+            ],
+            dir_light: Some(DirectionalLight {
+                direction: [-0.4, -0.8, -0.4],
+                color:     [1.0,  0.95, 0.85],
+                intensity: 1.2,
+            }),
             model_rotation: 0.0,
         }
     }

@@ -8,12 +8,14 @@ layout(binding = 0) uniform UBO {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec3 lightPos;
-    float _pad0;
-    vec3 lightColor;
-    float _pad1;
-    vec3 viewPos;
-    float _pad2;
+    vec4 viewPos;
+    vec4 albedoMetallic;
+    vec4 roughnessAO;
+    vec4 pointLightPos[4];
+    vec4 pointLightColor[4];
+    vec4 lightCounts;
+    vec4 dirLightDir;
+    vec4 dirLightColor;
 } ubo;
 
 layout(location = 0) out vec3 fragPos;

@@ -27,7 +27,7 @@ use sync::{VulkanSync, MAX_FRAMES_IN_FLIGHT};
 use depth::VulkanDepthBuffer;
 use msaa::{VulkanMsaaBuffer, MSAA_SAMPLES};
 
-use crate::scene::{Scene, UniformBufferObject};
+use crate::scene::{Scene, UniformBufferObject, MAX_POINT_LIGHTS};
 use std::mem::size_of;
 
 // Wraps the instance-level surface so it implements Drop correctly.
@@ -309,20 +309,37 @@ impl VulkanRenderer {
         );
         proj[1][1] *= -1.0;
 
+        let num_point = scene.point_lights.len().min(MAX_POINT_LIGHTS);
+        let mut point_light_pos   = [[0f32; 4]; MAX_POINT_LIGHTS];
+        let mut point_light_color = [[0f32; 4]; MAX_POINT_LIGHTS];
+        for (i, pl) in scene.point_lights.iter().take(num_point).enumerate() {
+            point_light_pos[i]   = [pl.position[0], pl.position[1], pl.position[2], pl.intensity];
+            point_light_color[i] = [pl.color[0],    pl.color[1],    pl.color[2],    0.0];
+        }
+
+        let (has_dir, dir_dir, dir_color) = match &scene.dir_light {
+            Some(dl) => (
+                1.0f32,
+                [dl.direction[0], dl.direction[1], dl.direction[2], dl.intensity],
+                [dl.color[0],     dl.color[1],     dl.color[2],     0.0f32],
+            ),
+            None => (0.0, [0f32; 4], [0f32; 4]),
+        };
+
+        let m = &scene.material;
+        let cp = scene.camera.position;
         let ubo = UniformBufferObject {
-            model:       matrix4_to_array(model),
-            view:        matrix4_to_array(view),
-            proj:        matrix4_to_array(proj),
-            light_pos:   scene.light.position,
-            _pad0:       0.0,
-            light_color: scene.light.color,
-            _pad1:       0.0,
-            view_pos: [
-                scene.camera.position.x,
-                scene.camera.position.y,
-                scene.camera.position.z,
-            ],
-            _pad2: 0.0,
+            model:             matrix4_to_array(model),
+            view:              matrix4_to_array(view),
+            proj:              matrix4_to_array(proj),
+            view_pos:          [cp.x, cp.y, cp.z, 0.0],
+            albedo_metallic:   [m.albedo[0], m.albedo[1], m.albedo[2], m.metallic],
+            roughness_ao:      [m.roughness, m.ao, 0.0, 0.0],
+            point_light_pos,
+            point_light_color,
+            light_counts:      [num_point as f32, has_dir, 0.0, 0.0],
+            dir_light_dir:     dir_dir,
+            dir_light_color:   dir_color,
         };
 
         self.uniform_buffers[frame].update_uniform(&self.device, &ubo)
