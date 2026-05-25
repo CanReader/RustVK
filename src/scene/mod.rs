@@ -203,17 +203,17 @@ impl Scene {
                 PointLight {
                     position:  [6.0, 8.0, 5.0],
                     color:     [1.0, 0.95, 0.85],
-                    intensity: 600.0,
+                    intensity: 300.0,
                 },
                 PointLight {
                     position:  [-5.0, 3.0, 2.0],
                     color:     [0.5, 0.7, 1.0],
-                    intensity: 250.0,
+                    intensity: 100.0,
                 },
                 PointLight {
                     position:  [2.0, -2.0, -6.0],
                     color:     [0.9, 0.3, 1.0],
-                    intensity: 120.0,
+                    intensity: 50.0,
                 },
             ],
             dir_light: Some(DirectionalLight {
