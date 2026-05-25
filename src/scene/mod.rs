@@ -180,8 +180,8 @@ impl Scene {
             add_sphere(
                 center, radius, color,
                 0.0,  // metallic  — glass is a dielectric
-                0.08, // roughness — small but non-zero; roughness=0 zeroes the GGX NDF
-                0.85, // transmission
+                0.04, // roughness — very smooth glass
+                0.95, // transmission
                 32, 32,
                 &mut vertices, &mut indices,
             );

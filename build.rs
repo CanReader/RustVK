@@ -2,7 +2,7 @@ use std::process::Command;
 use std::path::Path;
 
 // RT shaders need a SPIR-V 1.4 target (Vulkan 1.2) for ray tracing extensions.
-const RT_SHADERS: &[&str] = &["rt.rgen", "rt.rmiss", "rt_shadow.rmiss", "rt.rchit"];
+const RT_SHADERS: &[&str] = &["rt.rgen", "rt.rmiss", "rt_shadow.rmiss", "rt.rchit", "rt_anyhit.rahit"];
 
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -15,6 +15,7 @@ fn main() {
         ("rt.rmiss",       "miss.spv"),
         ("rt_shadow.rmiss","shadow.spv"),
         ("rt.rchit",       "closesthit.spv"),
+        ("rt_anyhit.rahit","anyhit.spv"),
     ];
 
     for (src, dst) in &shaders {

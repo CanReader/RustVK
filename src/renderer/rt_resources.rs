@@ -82,7 +82,9 @@ impl RtResources {
         // Binding 3: uniform buffer (RT UBO)
         // Binding 4: storage buffer (vertex data)
         // Binding 5: storage buffer (index data)
-        let rt_stages = vk::ShaderStageFlags::RAYGEN_KHR | vk::ShaderStageFlags::CLOSEST_HIT_KHR;
+        let rt_stages = vk::ShaderStageFlags::RAYGEN_KHR
+                      | vk::ShaderStageFlags::CLOSEST_HIT_KHR
+                      | vk::ShaderStageFlags::ANY_HIT_KHR;
 
         let bindings = [
             vk::DescriptorSetLayoutBinding {

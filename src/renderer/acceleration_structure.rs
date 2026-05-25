@@ -49,7 +49,7 @@ impl AccelerationStructure {
         let geometry = vk::AccelerationStructureGeometryKHR {
             geometry_type: vk::GeometryTypeKHR::TRIANGLES,
             geometry: vk::AccelerationStructureGeometryDataKHR { triangles },
-            flags: vk::GeometryFlagsKHR::OPAQUE,
+            flags: vk::GeometryFlagsKHR::empty(),
             ..Default::default()
         };
 

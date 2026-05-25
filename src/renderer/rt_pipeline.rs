@@ -48,6 +48,7 @@ impl RtPipeline {
         let miss_spv   = load_spv(&format!("{}/miss.spv",       shader_dir))?;
         let shadow_spv = load_spv(&format!("{}/shadow.spv",     shader_dir))?;
         let chit_spv   = load_spv(&format!("{}/closesthit.spv", shader_dir))?;
+        let ahit_spv   = load_spv(&format!("{}/anyhit.spv",     shader_dir))?;
 
         let make_module = |spv: &[u32]| -> Result<vk::ShaderModule, Box<dyn std::error::Error>> {
             let info = vk::ShaderModuleCreateInfo {
@@ -62,6 +63,7 @@ impl RtPipeline {
         let miss_module   = make_module(&miss_spv)?;
         let shadow_module = make_module(&shadow_spv)?;
         let chit_module   = make_module(&chit_spv)?;
+        let ahit_module   = make_module(&ahit_spv)?;
 
         let entry = unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"main\0") };
 
@@ -92,6 +94,13 @@ impl RtPipeline {
             vk::PipelineShaderStageCreateInfo {
                 stage:  vk::ShaderStageFlags::CLOSEST_HIT_KHR,
                 module: chit_module,
+                p_name: entry.as_ptr(),
+                ..Default::default()
+            },
+            // 4: any-hit (transparent shadow)
+            vk::PipelineShaderStageCreateInfo {
+                stage:  vk::ShaderStageFlags::ANY_HIT_KHR,
+                module: ahit_module,
                 p_name: entry.as_ptr(),
                 ..Default::default()
             },
@@ -127,11 +136,21 @@ impl RtPipeline {
                 intersection_shader:         vk::SHADER_UNUSED_KHR,
                 ..Default::default()
             },
+            // Group 3: primary hit (closest-hit only)
             vk::RayTracingShaderGroupCreateInfoKHR {
                 ty:                          vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP,
                 general_shader:              vk::SHADER_UNUSED_KHR,
                 closest_hit_shader:          3,
                 any_hit_shader:              vk::SHADER_UNUSED_KHR,
+                intersection_shader:         vk::SHADER_UNUSED_KHR,
+                ..Default::default()
+            },
+            // Group 4: shadow hit (any-hit only — ignores glass)
+            vk::RayTracingShaderGroupCreateInfoKHR {
+                ty:                          vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP,
+                general_shader:              vk::SHADER_UNUSED_KHR,
+                closest_hit_shader:          vk::SHADER_UNUSED_KHR,
+                any_hit_shader:              4,
                 intersection_shader:         vk::SHADER_UNUSED_KHR,
                 ..Default::default()
             },
@@ -175,6 +194,7 @@ impl RtPipeline {
             device.device.destroy_shader_module(miss_module,   None);
             device.device.destroy_shader_module(shadow_module, None);
             device.device.destroy_shader_module(chit_module,   None);
+            device.device.destroy_shader_module(ahit_module,   None);
         }
 
         // ── Shader Binding Table ──────────────────────────────────────────────
@@ -188,13 +208,13 @@ impl RtPipeline {
         // Each region (rgen, miss×2, hit) starts at a base_alignment boundary.
         // rgen region: 1 entry
         // miss region: 2 entries (sky + shadow)
-        // hit  region: 1 entry
+        // hit  region: 2 entries (primary + shadow-with-anyhit)
         let rgen_region_size  = align_up(handle_stride,          base_alignment);
         let miss_region_size  = align_up(handle_stride * 2,      base_alignment);
-        let hit_region_size   = align_up(handle_stride,          base_alignment);
+        let hit_region_size   = align_up(handle_stride * 2,      base_alignment);
         let sbt_total         = rgen_region_size + miss_region_size + hit_region_size;
 
-        // Fetch all 4 group handles at once
+        // Fetch all 5 group handles at once
         let num_groups   = groups.len();
         let handles_bytes = unsafe {
             rt_loader.get_ray_tracing_shader_group_handles(
@@ -229,10 +249,14 @@ impl RtPipeline {
             let shadow_base = rgen_region_size + handle_stride;
             sbt[shadow_base .. shadow_base + handle_size].copy_from_slice(miss1_handle);
 
-            // Group 3: closest hit — at rgen_region_size + miss_region_size
+            // Group 3: primary hit — at rgen_region_size + miss_region_size
             let chit_handle = &handles_bytes[3 * handle_size .. 4 * handle_size];
             let hit_base = rgen_region_size + miss_region_size;
             sbt[hit_base .. hit_base + handle_size].copy_from_slice(chit_handle);
+
+            // Group 4: shadow hit (any-hit) — at hit_base + handle_stride
+            let ahit_handle = &handles_bytes[4 * handle_size .. 5 * handle_size];
+            sbt[hit_base + handle_stride .. hit_base + handle_stride + handle_size].copy_from_slice(ahit_handle);
 
             unsafe { device.device.unmap_memory(sbt_buffer.memory); }
         }
