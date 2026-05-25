@@ -1,5 +1,6 @@
-use cgmath::{Point3, Vector3};
+use cgmath::Point3;
 use std::f32::consts::PI;
+use crate::camera::FreeCamera;
 
 // Each vertex carries its own material so both the rasterizer and a future
 // ray tracing pass can read material data directly from the vertex buffer.
@@ -24,16 +25,6 @@ pub struct DirectionalLight {
     pub direction: [f32; 3],
     pub color:     [f32; 3],
     pub intensity: f32,
-}
-
-pub struct Camera {
-    pub position: Point3<f32>,
-    pub target:   Point3<f32>,
-    pub up:       Vector3<f32>,
-    pub fov_deg:  f32,
-    pub aspect:   f32,
-    pub near:     f32,
-    pub far:      f32,
 }
 
 pub const MAX_POINT_LIGHTS: usize = 4;
@@ -80,7 +71,7 @@ pub struct RtUBO {
 pub struct Scene {
     pub vertices:       Vec<Vertex>,
     pub indices:        Vec<u32>,
-    pub camera:         Camera,
+    pub camera:         FreeCamera,
     pub point_lights:   Vec<PointLight>,
     pub dir_light:      Option<DirectionalLight>,
     pub model_rotation: f32,
@@ -190,15 +181,14 @@ impl Scene {
         Scene {
             vertices,
             indices,
-            camera: Camera {
-                position: Point3::new(0.0, 2.5, 6.5),
-                target:   Point3::new(0.0, 0.5, 0.0),
-                up:       Vector3::new(0.0, 1.0, 0.0),
-                fov_deg:  45.0,
-                aspect:   1280.0 / 720.0,
-                near:     0.1,
-                far:      100.0,
-            },
+            // yaw=0 → looking toward -Z; pitch ≈ -17° to aim at the scene center.
+            camera: FreeCamera::new(
+                Point3::new(0.0, 2.5, 6.5),
+                0.0,                         // yaw
+                -0.298,                      // pitch (arcsin(-2 / |[0,-2,-6.5]|))
+                45.0,
+                1280.0 / 720.0,
+            ),
             point_lights: vec![
                 PointLight {
                     position:  [6.0, 8.0, 5.0],

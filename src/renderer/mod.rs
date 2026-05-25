@@ -396,6 +396,10 @@ impl VulkanRenderer {
         Ok(())
     }
 
+    pub fn reset_accumulation(&mut self) {
+        self.sample_count = 0;
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.window_width  = width;
         self.window_height = height;
@@ -409,11 +413,7 @@ impl VulkanRenderer {
         frame: usize,
         scene: &Scene,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let view = Matrix4::look_at_rh(
-            scene.camera.position,
-            scene.camera.target,
-            scene.camera.up,
-        );
+        let view = scene.camera.view_matrix();
         let mut proj = perspective(
             Deg(scene.camera.fov_deg),
             scene.camera.aspect,
@@ -642,12 +642,7 @@ impl VulkanRenderer {
         let model = Matrix4::from_angle_y(Rad(rot))
             * Matrix4::from_angle_x(Rad(rot * 0.35));
 
-        let view = Matrix4::look_at_rh(
-            scene.camera.position,
-            scene.camera.target,
-            scene.camera.up,
-        );
-
+        let view = scene.camera.view_matrix();
         let mut proj = perspective(
             Deg(scene.camera.fov_deg),
             scene.camera.aspect,
