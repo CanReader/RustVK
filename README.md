@@ -38,7 +38,7 @@ Platform notes:
 
 - Linux (Wayland): tested on KDE Plasma with NVIDIA driver 595.x. Present mode is hardcoded to FIFO because MAILBOX triggers a `wp_tearing_control_v1` protocol conflict on some NVIDIA/compositor combinations.
 - Linux (X11) and Windows: should work fine.
-- macOS: not tested, would need MoltenVK.
+- macOS: not tested, would need KosmicKrisp Vulkan-On-Metal driver.
 
 ---
 
