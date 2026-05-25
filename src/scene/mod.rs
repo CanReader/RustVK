@@ -59,6 +59,24 @@ pub struct UniformBufferObject {
     pub dir_light_color:   [f32; 4],                        // offset 368
 }
 
+/// Uniform buffer for the ray-tracing path tracer.
+/// Layout is std140-compatible (all fields 16-byte aligned).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct RtUBO {
+    pub inv_view:          [[f32; 4]; 4],                   // offset 0
+    pub inv_proj:          [[f32; 4]; 4],                   // offset 64
+    pub cam_pos:           [f32; 4],                        // offset 128
+    pub light_counts:      [f32; 4],                        // offset 144  (numPoint, hasDir, 0, 0)
+    pub point_light_pos:   [[f32; 4]; MAX_POINT_LIGHTS],    // offset 160
+    pub point_light_color: [[f32; 4]; MAX_POINT_LIGHTS],    // offset 224
+    pub dir_light_dir:     [f32; 4],                        // offset 288  (x,y,z, intensity)
+    pub dir_light_color:   [f32; 4],                        // offset 304
+    pub frame_index:       u32,                             // offset 320
+    pub max_bounces:       u32,                             // offset 324
+    pub _pad:              [f32; 2],                        // offset 328  (pad to 336 = 16-byte aligned end)
+}
+
 pub struct Scene {
     pub vertices:       Vec<Vertex>,
     pub indices:        Vec<u32>,

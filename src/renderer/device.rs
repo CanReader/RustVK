@@ -1,4 +1,5 @@
 use ash::{vk, Device, Instance};
+use std::ffi::CStr;
 
 /// Queue family indices selected for graphics and presentation.
 #[derive(Clone, Debug)]
@@ -19,12 +20,19 @@ impl QueueFamilies {
 
 /// Wraps the physical device, logical device, and selected queues.
 pub struct VulkanDevice {
-    pub physical_device: vk::PhysicalDevice,
-    pub device:          Device,
-    pub graphics_queue:  vk::Queue,
-    pub present_queue:   vk::Queue,
-    pub queue_families:  QueueFamilies,
-    pub mem_properties:  vk::PhysicalDeviceMemoryProperties,
+    pub physical_device:    vk::PhysicalDevice,
+    pub device:             Device,
+    pub graphics_queue:     vk::Queue,
+    pub present_queue:      vk::Queue,
+    pub queue_families:     QueueFamilies,
+    pub mem_properties:     vk::PhysicalDeviceMemoryProperties,
+
+    // Ray tracing support (None when the extensions are absent)
+    pub rt_supported:       bool,
+    pub accel_loader:       Option<ash::khr::acceleration_structure::Device>,
+    pub rt_pipeline_loader: Option<ash::khr::ray_tracing_pipeline::Device>,
+    // 'static lifetime: the struct owns its own memory so the borrow is always valid.
+    pub rt_props:           vk::PhysicalDeviceRayTracingPipelinePropertiesKHR<'static>,
 }
 
 impl VulkanDevice {
@@ -35,6 +43,20 @@ impl VulkanDevice {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let physical_device = Self::pick_physical_device(instance, surface_loader, surface)?;
         let queue_families  = Self::find_queue_families(instance, physical_device, surface_loader, surface)?;
+
+        // Probe extension support
+        let available_exts = unsafe {
+            instance.enumerate_device_extension_properties(physical_device)?
+        };
+        let has_ext = |name: &CStr| -> bool {
+            available_exts.iter().any(|e| unsafe {
+                CStr::from_ptr(e.extension_name.as_ptr()) == name
+            })
+        };
+        let rt_available = has_ext(ash::khr::acceleration_structure::NAME)
+            && has_ext(ash::khr::ray_tracing_pipeline::NAME)
+            && has_ext(ash::khr::deferred_host_operations::NAME)
+            && has_ext(ash::khr::buffer_device_address::NAME);
 
         let queue_priority = 1.0_f32;
         let unique = queue_families.unique_families();
@@ -47,27 +69,103 @@ impl VulkanDevice {
             }
         }).collect();
 
-        let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
+        let device = if rt_available {
+            // ── RT path: pNext feature chain ─────────────────────────────────
+            // Build chain manually via raw p_next pointers.
+            // Order: DeviceCreateInfo.p_next -> features2
+            //        features2.p_next        -> bda_features
+            //        bda_features.p_next     -> accel_features
+            //        accel_features.p_next   -> rt_features  -> null
 
-        let features = vk::PhysicalDeviceFeatures {
-            ..Default::default()
+            let mut bda_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
+                buffer_device_address: vk::TRUE,
+                ..Default::default()
+            };
+            let mut accel_features = vk::PhysicalDeviceAccelerationStructureFeaturesKHR {
+                acceleration_structure: vk::TRUE,
+                ..Default::default()
+            };
+            let mut rt_features = vk::PhysicalDeviceRayTracingPipelineFeaturesKHR {
+                ray_tracing_pipeline: vk::TRUE,
+                ..Default::default()
+            };
+
+            // Build pNext chain manually. The Vulkan driver reads these via raw pointers,
+            // so Rust's "value assigned but never read" warning is a false positive.
+            #[allow(unused_assignments)]
+            {
+                bda_features.p_next   = &mut accel_features as *mut _ as *mut std::ffi::c_void;
+                accel_features.p_next = &mut rt_features    as *mut _ as *mut std::ffi::c_void;
+                // rt_features.p_next stays null (already default)
+            }
+
+            // features2 holds the base Vulkan features; we delegate to the pNext chain
+            let features2 = vk::PhysicalDeviceFeatures2 {
+                p_next: &mut bda_features as *mut _ as *mut std::ffi::c_void,
+                ..Default::default()
+            };
+
+            let mut device_extensions: Vec<*const std::os::raw::c_char> = vec![
+                ash::khr::swapchain::NAME.as_ptr(),
+                ash::khr::deferred_host_operations::NAME.as_ptr(),
+                ash::khr::acceleration_structure::NAME.as_ptr(),
+                ash::khr::ray_tracing_pipeline::NAME.as_ptr(),
+                ash::khr::buffer_device_address::NAME.as_ptr(),
+            ];
+            if has_ext(ash::khr::spirv_1_4::NAME) {
+                device_extensions.push(ash::khr::spirv_1_4::NAME.as_ptr());
+            }
+
+            // NOTE: p_enabled_features MUST be null when using PhysicalDeviceFeatures2 in pNext
+            let create_info = vk::DeviceCreateInfo {
+                queue_create_info_count:    queue_create_infos.len() as u32,
+                p_queue_create_infos:       queue_create_infos.as_ptr(),
+                enabled_extension_count:    device_extensions.len() as u32,
+                pp_enabled_extension_names: device_extensions.as_ptr(),
+                p_enabled_features:         std::ptr::null(),
+                p_next: &features2 as *const _ as *const std::ffi::c_void,
+                ..Default::default()
+            };
+
+            unsafe { instance.create_device(physical_device, &create_info, None)? }
+        } else {
+            // ── Rasterizer-only path ──────────────────────────────────────────
+            let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
+            let features = vk::PhysicalDeviceFeatures { ..Default::default() };
+
+            let create_info = vk::DeviceCreateInfo {
+                queue_create_info_count:    queue_create_infos.len() as u32,
+                p_queue_create_infos:       queue_create_infos.as_ptr(),
+                enabled_extension_count:    device_extensions.len() as u32,
+                pp_enabled_extension_names: device_extensions.as_ptr(),
+                p_enabled_features:         &features,
+                ..Default::default()
+            };
+
+            unsafe { instance.create_device(physical_device, &create_info, None)? }
         };
-
-        let create_info = vk::DeviceCreateInfo {
-            queue_create_info_count:    queue_create_infos.len() as u32,
-            p_queue_create_infos:       queue_create_infos.as_ptr(),
-            enabled_extension_count:    device_extensions.len() as u32,
-            pp_enabled_extension_names: device_extensions.as_ptr(),
-            p_enabled_features:         &features,
-            ..Default::default()
-        };
-
-        let device = unsafe { instance.create_device(physical_device, &create_info, None)? };
 
         let graphics_queue = unsafe { device.get_device_queue(queue_families.graphics_family, 0) };
         let present_queue  = unsafe { device.get_device_queue(queue_families.present_family, 0) };
-
         let mem_properties = unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+        // Build RT loader instances and fetch RT pipeline properties
+        let (accel_loader, rt_pipeline_loader, rt_props) = if rt_available {
+            let accel_loader    = ash::khr::acceleration_structure::Device::new(instance, &device);
+            let rt_pipe_loader  = ash::khr::ray_tracing_pipeline::Device::new(instance, &device);
+
+            // Query VkPhysicalDeviceRayTracingPipelinePropertiesKHR via pNext chain
+            let mut rt_props = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR::default();
+            let mut props2   = vk::PhysicalDeviceProperties2 {
+                p_next: &mut rt_props as *mut _ as *mut std::ffi::c_void,
+                ..Default::default()
+            };
+            unsafe { instance.get_physical_device_properties2(physical_device, &mut props2); }
+
+            (Some(accel_loader), Some(rt_pipe_loader), rt_props)
+        } else {
+            (None, None, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR::default())
+        };
 
         Ok(Self {
             physical_device,
@@ -76,6 +174,10 @@ impl VulkanDevice {
             present_queue,
             queue_families,
             mem_properties,
+            rt_supported: rt_available,
+            accel_loader,
+            rt_pipeline_loader,
+            rt_props,
         })
     }
 

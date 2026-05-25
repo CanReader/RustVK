@@ -1,13 +1,20 @@
 use std::process::Command;
 use std::path::Path;
 
+// RT shaders need a SPIR-V 1.4 target (Vulkan 1.2) for ray tracing extensions.
+const RT_SHADERS: &[&str] = &["rt.rgen", "rt.rmiss", "rt_shadow.rmiss", "rt.rchit"];
+
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let shader_dir = Path::new(&manifest_dir).join("src").join("shaders");
 
     let shaders = [
-        ("shader.vert", "vert.spv"),
-        ("shader.frag", "frag.spv"),
+        ("shader.vert",    "vert.spv"),
+        ("shader.frag",    "frag.spv"),
+        ("rt.rgen",        "raygen.spv"),
+        ("rt.rmiss",       "miss.spv"),
+        ("rt_shadow.rmiss","shadow.spv"),
+        ("rt.rchit",       "closesthit.spv"),
     ];
 
     for (src, dst) in &shaders {
@@ -16,11 +23,15 @@ fn main() {
 
         println!("cargo:rerun-if-changed={}", src_path.display());
 
-        let status = Command::new("glslc")
-            .arg(&src_path)
-            .arg("-o")
-            .arg(&dst_path)
-            .status();
+        let is_rt = RT_SHADERS.contains(src);
+
+        let mut cmd = Command::new("glslc");
+        cmd.arg(&src_path).arg("-o").arg(&dst_path);
+        if is_rt {
+            cmd.arg("--target-env=vulkan1.2");
+        }
+
+        let status = cmd.status();
 
         match status {
             Ok(s) if s.success() => {
