@@ -13,6 +13,9 @@ cgmath = "0.18"
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
+imgui = "0.12"
+imgui-winit-support = "0.13"
+imgui-rs-vulkan-renderer = "1.16"
 
 [build-dependencies]
 # nothing extra needed

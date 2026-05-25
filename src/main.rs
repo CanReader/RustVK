@@ -154,7 +154,8 @@ impl ApplicationHandler for App {
                     if moved_mouse || moved_keys {
                         r.reset_accumulation();
                     }
-                    if let Err(e) = r.render(&self.scene) {
+                    let window = self.window.as_ref().unwrap();
+                    if let Err(e) = r.render(&self.scene, window, dt * 1000.0) {
                         log::error!("Render error: {}", e);
                         event_loop.exit();
                     }

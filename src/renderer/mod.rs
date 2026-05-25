@@ -13,6 +13,7 @@ pub mod msaa;
 pub mod acceleration_structure;
 pub mod rt_pipeline;
 pub mod rt_resources;
+pub mod imgui_layer;
 
 use ash::vk;
 use cgmath::{Matrix4, Rad, Deg, perspective, SquareMatrix};
@@ -32,9 +33,11 @@ use msaa::{VulkanMsaaBuffer, MSAA_SAMPLES};
 use acceleration_structure::AccelerationStructure;
 use rt_pipeline::RtPipeline;
 use rt_resources::RtResources;
+use imgui_layer::ImGuiLayer;
 
 use crate::scene::{Scene, UniformBufferObject, RtUBO, MAX_POINT_LIGHTS};
 use std::mem::size_of;
+use std::collections::VecDeque;
 
 // Wraps the instance-level surface so it implements Drop correctly.
 // Declared AFTER device so it's destroyed after the device but before the instance.
@@ -55,6 +58,9 @@ impl Drop for VulkanSurface {
 // Rust drops struct fields in declaration order. Innermost resources (those that
 // depend on others) must be declared FIRST so they are destroyed first.
 pub struct VulkanRenderer {
+    // ── ImGui overlay (holds device clone, must drop before device) ───────
+    imgui_layer:     Option<ImGuiLayer>,
+
     // ── RT resources (device children, dropped before device) ─────────────
     // Many of these fields exist solely for ownership / Drop order. The
     // `#[allow(dead_code)]` suppresses false "never read" warnings.
@@ -91,6 +97,7 @@ pub struct VulkanRenderer {
     window_width:        u32,
     window_height:       u32,
     sample_count:        u32,   // RT progressive accumulation frame counter
+    frame_times:         VecDeque<f32>,  // last 128 frame times in ms
 
     // ── device (dropped after all device-level children) ──────────────────
     device:              VulkanDevice,
@@ -158,6 +165,24 @@ impl VulkanRenderer {
         let framebuffers = VulkanFramebuffers::new(&device, &swapchain, &render_pass, &depth_buffer, &msaa_buffer)?;
         let sync         = VulkanSync::new(&device, swapchain.images.len())?;
 
+        // ── ImGui overlay ─────────────────────────────────────────────────────
+        let imgui_layer = match ImGuiLayer::new(
+            &instance.instance,
+            &device,
+            &swapchain,
+            &command_pool,
+            window,
+        ) {
+            Ok(layer) => {
+                log::info!("ImGui overlay initialised.");
+                Some(layer)
+            }
+            Err(e) => {
+                log::warn!("ImGui init failed ({}), overlay disabled.", e);
+                None
+            }
+        };
+
         // ── RT initialisation (optional) ──────────────────────────────────────
         let (blas, tlas, rt_pipeline, rt_resources, rt_vertex_buf, rt_index_buf, rt_ubo_buffers) =
             if device.rt_supported {
@@ -183,6 +208,7 @@ impl VulkanRenderer {
             };
 
         Ok(Self {
+            imgui_layer,
             rt_resources,
             rt_pipeline,
             tlas,
@@ -209,6 +235,7 @@ impl VulkanRenderer {
             window_width:  size.width,
             window_height: size.height,
             sample_count:  0,
+            frame_times:   VecDeque::with_capacity(128),
             device,
             surface: VulkanSurface { surface: raw_surface, loader: surface_loader },
             instance,
@@ -283,7 +310,18 @@ impl VulkanRenderer {
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    pub fn render(&mut self, scene: &Scene) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn render(
+        &mut self,
+        scene:         &Scene,
+        window:        &winit::window::Window,
+        frame_time_ms: f32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // ── Update frame-time history ─────────────────────────────────────────
+        if self.frame_times.len() == 128 {
+            self.frame_times.pop_front();
+        }
+        self.frame_times.push_back(frame_time_ms);
+
         let frame = self.current_frame;
 
         unsafe {
@@ -326,10 +364,75 @@ impl VulkanRenderer {
             self.device.device.reset_command_buffer(cb, vk::CommandBufferResetFlags::empty())?;
         }
 
+        // ── Build ImGui UI for this frame ─────────────────────────────────────
+        // We must call begin_frame / render before recording the command buffer
+        // because cmd_draw needs the DrawData which is owned by imgui::Context.
+        // To avoid holding &mut imgui_layer across the &self borrow in
+        // record_rt_command_buffer, we render imgui to a local DrawData pointer
+        // and pass a raw pointer into the recorder. Safety: the DrawData lives
+        // until the end of this function, well past the command buffer submit.
+        let imgui_draw_data: Option<*const imgui::DrawData> =
+            if let Some(ref mut layer) = self.imgui_layer {
+                let ui = layer.begin_frame(window, frame_time_ms);
+
+                // Overlay window: no title bar, no resize, semi-transparent.
+                let avg_ms = if self.frame_times.is_empty() {
+                    frame_time_ms
+                } else {
+                    let recent: f32 = self.frame_times
+                        .iter()
+                        .rev()
+                        .take(16)
+                        .copied()
+                        .sum::<f32>();
+                    recent / self.frame_times.len().min(16) as f32
+                };
+                let fps = if avg_ms > 0.0 { 1000.0 / avg_ms } else { 0.0 };
+
+                let cp = scene.camera.position;
+
+                let window_flags = imgui::WindowFlags::NO_TITLE_BAR
+                    | imgui::WindowFlags::NO_RESIZE
+                    | imgui::WindowFlags::NO_SCROLLBAR
+                    | imgui::WindowFlags::NO_MOVE
+                    | imgui::WindowFlags::NO_SAVED_SETTINGS
+                    | imgui::WindowFlags::NO_FOCUS_ON_APPEARING
+                    | imgui::WindowFlags::NO_BRING_TO_FRONT_ON_FOCUS;
+
+                ui.window("##perf")
+                    .flags(window_flags)
+                    .position([10.0, 10.0], imgui::Condition::Always)
+                    .size([220.0, 140.0], imgui::Condition::Always)
+                    .bg_alpha(0.55)
+                    .build(|| {
+                        ui.text(format!("FPS:     {:.1}", fps));
+                        ui.text(format!("Frame:   {:.2} ms", frame_time_ms));
+
+                        // Histogram of last 128 frame times.
+                        let history: Vec<f32> = self.frame_times.iter().copied().collect();
+                        imgui::PlotHistogram::new(ui, "##ft", &history)
+                            .graph_size([200.0, 32.0])
+                            .scale_min(0.0)
+                            .scale_max(33.4)
+                            .build();
+
+                        ui.text(format!("Samples: {}", self.sample_count));
+                        ui.text(format!(
+                            "Pos: ({:.1}, {:.1}, {:.1})",
+                            cp.x, cp.y, cp.z
+                        ));
+                    });
+
+                let draw_data = layer.context.render() as *const imgui::DrawData;
+                Some(draw_data)
+            } else {
+                None
+            };
+
         if self.tlas.is_some() {
             // ── Ray tracing path ───────────────────────────────────────────────
             self.update_rt_uniform_buffer(frame, scene)?;
-            self.record_rt_command_buffer(cb, image_index as usize, frame)?;
+            self.record_rt_command_buffer(cb, image_index as usize, frame, imgui_draw_data)?;
         } else {
             // ── Rasterizer path ────────────────────────────────────────────────
             self.update_uniform_buffer(frame, scene)?;
@@ -464,10 +567,11 @@ impl VulkanRenderer {
     }
 
     fn record_rt_command_buffer(
-        &self,
+        &mut self,
         cb:          vk::CommandBuffer,
         image_index: usize,
         frame:       usize,
+        draw_data:   Option<*const imgui::DrawData>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let rt_loader  = self.device.rt_pipeline_loader.as_ref().ok_or("no RT loader")?;
         let rt_pipe    = self.rt_pipeline.as_ref().ok_or("no rt_pipeline")?;
@@ -586,12 +690,16 @@ impl VulkanRenderer {
             );
         }
 
-        // ── Barrier: swapchain image TRANSFER_DST_OPTIMAL -> PRESENT_SRC_KHR ─
-        let sc_to_present = vk::ImageMemoryBarrier {
+        // ── Barrier: swapchain TRANSFER_DST_OPTIMAL -> COLOR_ATTACHMENT_OPTIMAL
+        // Needed so the ImGui render pass can use it as a color attachment.
+        // The render pass dependency handles the memory dependency from TRANSFER_WRITE;
+        // we only need the layout transition barrier here.
+        let sc_to_ca = vk::ImageMemoryBarrier {
             old_layout:    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            new_layout:    vk::ImageLayout::PRESENT_SRC_KHR,
+            new_layout:    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             src_access_mask: vk::AccessFlags::TRANSFER_WRITE,
-            dst_access_mask: vk::AccessFlags::empty(),
+            dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_READ
+                | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             src_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
             dst_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
             image: swapchain_image,
@@ -602,10 +710,76 @@ impl VulkanRenderer {
             self.device.device.cmd_pipeline_barrier(
                 cb,
                 vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::DependencyFlags::empty(),
-                &[], &[], &[sc_to_present],
+                &[], &[], &[sc_to_ca],
             );
+        }
+
+        // ── ImGui render pass (LOAD_OP_LOAD, finalLayout = PRESENT_SRC_KHR) ──
+        // If the layer is present, run the render pass. The final_layout on the
+        // attachment description transitions the image to PRESENT_SRC_KHR so no
+        // additional barrier is needed afterward.
+        // Draw ImGui if the layer is live and we have draw data for this frame.
+        // In either case the swapchain image must end up in PRESENT_SRC_KHR:
+        //   - render pass finalLayout handles it when ImGui runs
+        //   - explicit barrier handles it when ImGui is skipped
+        let imgui_rendered = if let (Some(dd_ptr), Some(ref mut layer)) =
+            (draw_data, self.imgui_layer.as_mut())
+        {
+            // SAFETY: dd_ptr was obtained from imgui::Context::render() earlier
+            // in render() and remains valid for the duration of this function.
+            let dd = unsafe { &*dd_ptr };
+            let rp_begin = vk::RenderPassBeginInfo {
+                render_pass:  layer.render_pass,
+                framebuffer:  layer.framebuffers[image_index],
+                render_area:  vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                },
+                clear_value_count: 0,
+                p_clear_values:    std::ptr::null(),
+                ..Default::default()
+            };
+            unsafe {
+                self.device.device.cmd_begin_render_pass(
+                    cb,
+                    &rp_begin,
+                    vk::SubpassContents::INLINE,
+                );
+            }
+            layer.renderer.cmd_draw(cb, dd)
+                .map_err(|e| format!("imgui cmd_draw: {}", e))?;
+            unsafe {
+                self.device.device.cmd_end_render_pass(cb);
+            }
+            true
+        } else {
+            false
+        };
+
+        if !imgui_rendered {
+            // No ImGui render pass ran: transition swapchain manually to PRESENT_SRC_KHR.
+            let sc_to_present = vk::ImageMemoryBarrier {
+                old_layout:    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                new_layout:    vk::ImageLayout::PRESENT_SRC_KHR,
+                src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access_mask: vk::AccessFlags::empty(),
+                src_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
+                dst_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
+                image: swapchain_image,
+                subresource_range: full_color_range(),
+                ..Default::default()
+            };
+            unsafe {
+                self.device.device.cmd_pipeline_barrier(
+                    cb,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                    vk::DependencyFlags::empty(),
+                    &[], &[], &[sc_to_present],
+                );
+            }
         }
 
         // ── Transition out_image back to GENERAL for next frame ───────────────
@@ -762,6 +936,11 @@ impl VulkanRenderer {
         self.render_pass  = new_rp;
         self.swapchain    = new_swapchain;
         self.acquire_sem_index = 0;
+
+        // Rebuild ImGui framebuffers to match the new swapchain image views.
+        if let Some(ref mut layer) = self.imgui_layer {
+            layer.rebuild_framebuffers(&self.device, &self.swapchain)?;
+        }
 
         Ok(())
     }
