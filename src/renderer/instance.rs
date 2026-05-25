@@ -1,4 +1,5 @@
 use ash::{vk, Entry, Instance};
+use raw_window_handle::HasDisplayHandle;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_void;
 
@@ -31,7 +32,7 @@ impl VulkanInstance {
 
         // Required surface extensions from winit
         let mut extensions = ash_window::enumerate_required_extensions(
-            raw_window_handle::HasRawDisplayHandle::raw_display_handle(window)?
+            window.display_handle()?.as_raw()
         )?.to_vec();
 
         if enable_validation {

@@ -17,6 +17,7 @@ pub mod imgui_layer;
 
 use ash::vk;
 use cgmath::{Matrix4, Rad, Deg, perspective, SquareMatrix};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use instance::VulkanInstance;
 use device::VulkanDevice;
@@ -116,12 +117,14 @@ impl VulkanRenderer {
         let instance = VulkanInstance::new(window, enable_validation)?;
 
         let surface_loader = ash::khr::surface::Instance::new(&instance.entry, &instance.instance);
+        let display_handle = window.display_handle()?.as_raw();
+        let window_handle = window.window_handle()?.as_raw();
         let raw_surface = unsafe {
             ash_window::create_surface(
                 &instance.entry,
                 &instance.instance,
-                raw_window_handle::HasRawDisplayHandle::raw_display_handle(window)?,
-                raw_window_handle::HasRawWindowHandle::raw_window_handle(window)?,
+                display_handle,
+                window_handle,
                 None,
             )?
         };
