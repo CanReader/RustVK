@@ -436,7 +436,7 @@ impl VulkanRenderer {
         } else {
             // ── Rasterizer path ────────────────────────────────────────────────
             self.update_uniform_buffer(frame, scene)?;
-            self.record_command_buffer(cb, image_index as usize, frame)?;
+            self.record_command_buffer(cb, image_index as usize, frame, imgui_draw_data)?;
         }
 
         let wait_semaphores   = [acquire_sem];
@@ -859,16 +859,17 @@ impl VulkanRenderer {
     }
 
     fn record_command_buffer(
-        &self,
+        &mut self,
         cb:          vk::CommandBuffer,
         image_index: usize,
         frame:       usize,
+        draw_data:   Option<*const imgui::DrawData>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let begin_info = vk::CommandBufferBeginInfo { ..Default::default() };
         unsafe { self.device.device.begin_command_buffer(cb, &begin_info)? };
 
         let clear_values = [
-            vk::ClearValue { color: vk::ClearColorValue { float32: [0.03, 0.05, 0.12, 1.0] } },
+            vk::ClearValue { color: vk::ClearColorValue { float32: [0.13, 0.25, 0.65, 1.0] } },
             vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
         ];
 
@@ -899,9 +900,66 @@ impl VulkanRenderer {
             );
             self.device.device.cmd_draw_indexed(cb, self.index_count, 1, 0, 0, 0);
             self.device.device.cmd_end_render_pass(cb);
-            self.device.device.end_command_buffer(cb)?;
         }
 
+        // ── ImGui overlay ───────────────────────────────────────────────────────
+        // The main render pass left the swapchain image in PRESENT_SRC_KHR.
+        // Transition to COLOR_ATTACHMENT_OPTIMAL for the ImGui render pass.
+        if let (Some(dd_ptr), Some(ref mut layer)) =
+            (draw_data, self.imgui_layer.as_mut())
+        {
+            let dd = unsafe { &*dd_ptr };
+            let swapchain_image = self.swapchain.images[image_index];
+            let extent = self.swapchain.extent;
+
+            let barrier = vk::ImageMemoryBarrier {
+                old_layout:    vk::ImageLayout::PRESENT_SRC_KHR,
+                new_layout:    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_READ
+                    | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                src_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
+                dst_queue_family_index: vk::QUEUE_FAMILY_IGNORED,
+                image: swapchain_image,
+                subresource_range: full_color_range(),
+                ..Default::default()
+            };
+            unsafe {
+                self.device.device.cmd_pipeline_barrier(
+                    cb,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::DependencyFlags::empty(),
+                    &[], &[], &[barrier],
+                );
+            }
+
+            let rp_begin = vk::RenderPassBeginInfo {
+                render_pass:  layer.render_pass,
+                framebuffer:  layer.framebuffers[image_index],
+                render_area:  vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                },
+                clear_value_count: 0,
+                p_clear_values:    std::ptr::null(),
+                ..Default::default()
+            };
+            unsafe {
+                self.device.device.cmd_begin_render_pass(
+                    cb,
+                    &rp_begin,
+                    vk::SubpassContents::INLINE,
+                );
+            }
+            layer.renderer.cmd_draw(cb, dd)
+                .map_err(|e| format!("imgui cmd_draw: {}", e))?;
+            unsafe {
+                self.device.device.cmd_end_render_pass(cb);
+            }
+        }
+
+        unsafe { self.device.device.end_command_buffer(cb)?; }
         Ok(())
     }
 
