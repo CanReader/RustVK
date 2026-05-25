@@ -132,39 +132,40 @@ layout(binding = 0) uniform UBO {
 
 **Geometry & assets**
 - [ ] glTF model loading
-- [ ] Texture loading (diffuse, normal, roughness maps)
+- [ ] Texture / material map support (albedo, normal, roughness, metallic)
 - [ ] Mip map generation
 - [ ] Instanced rendering
-- [ ] Skybox / cubemap
 
 **Lighting & shading**
-- [ ] PBR (metallic-roughness workflow)
-- [ ] Image-based lighting (IBL)
-- [ ] Multiple point lights
-- [ ] Directional light
+- [x] PBR — GGX BRDF, metallic-roughness workflow
+- [x] Directional light + multiple point lights
+- [x] Gamma correction + ACES filmic tone mapping
+- [x] Ray tracing — `VK_KHR_ray_tracing_pipeline`, BLAS/TLAS, SBT
+- [x] Multi-bounce path tracing with progressive accumulation
+- [x] Glass / refraction (Snell's law, Fresnel, TIR)
+- [x] Transparent shadows via any-hit shader
+- [x] Physically-based sky (Rayleigh + Mie approximation, sun disc)
+- [ ] Image-based lighting (IBL) — HDR environment map, prefiltered cubemap
 - [ ] Normal mapping
-- [ ] Gamma correction + HDR tone mapping
+- [ ] Emissive materials / area lights
 
-**Shadows**
-- [ ] Basic shadow mapping
-- [ ] Cascaded shadow maps (CSM)
-- [ ] Percentage-closer filtering (PCF)
+**Camera & controls**
+- [x] Free-look flying camera — WASD + mouse, yaw/pitch
+- [x] Accumulation reset on camera move
+
+**Path tracing quality**
+- [ ] Denoiser integration (OIDN or NRD)
+- [ ] Multiple importance sampling (MIS) for direct lighting
+- [ ] Bidirectional path tracing (BDPT)
+- [ ] Volumetrics / participating media
 
 **Post-processing**
 - [ ] Bloom
-- [ ] SSAO (screen-space ambient occlusion)
-- [ ] TAA (temporal anti-aliasing)
+- [ ] Depth of field
 - [ ] Motion blur
 
-**Architecture**
-- [ ] Render graph
-- [ ] Bindless textures
-- [ ] GPU-driven rendering (indirect draw)
-- [ ] Compute shaders
-- [ ] Ray tracing (VK_KHR_ray_tracing)
-
 **Developer tools**
-- [ ] ImGui integration
+- [ ] ImGui integration for live material/light editing
 - [ ] RenderDoc markers
 - [ ] GPU timestamps / frame profiling
 

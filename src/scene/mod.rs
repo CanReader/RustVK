@@ -154,19 +154,19 @@ impl Scene {
         add_floor(6.0, 0.0, [1.0, 1.0, 1.0], 0.55, &mut vertices, &mut indices);
 
         // Center: large chrome mirror sphere — clearly shows environment reflections
-        add_sphere([0.0, 0.90, 0.0], 0.90, [0.96, 0.96, 0.96], 1.0, 0.02, 0.0, 32, 32, &mut vertices, &mut indices);
+        add_sphere([0.0, 0.90, 0.0], 0.90, [0.96, 0.96, 0.96], 1.0, 0.02, 0.0, 256, 256, &mut vertices, &mut indices);
         // Left: glass sphere
-        add_sphere([-2.20, 0.55, 0.0], 0.55, [0.90, 0.97, 1.00], 0.0, 0.02, 0.95, 32, 32, &mut vertices, &mut indices);
+        add_sphere([-2.20, 0.55, 0.0], 0.55, [0.90, 0.97, 1.00], 0.0, 0.02, 0.95, 128, 128, &mut vertices, &mut indices);
         // Right: gold metal
-        add_sphere([2.20, 0.55, 0.0], 0.55, [1.00, 0.76, 0.33], 1.0, 0.12, 0.0, 32, 32, &mut vertices, &mut indices);
+        add_sphere([2.20, 0.55, 0.0], 0.55, [1.00, 0.76, 0.33], 1.0, 0.12, 0.0, 128, 128, &mut vertices, &mut indices);
         // Back-left: red matte diffuse
-        add_sphere([-1.40, 0.38, -1.80], 0.38, [0.80, 0.07, 0.07], 0.0, 0.85, 0.0, 32, 32, &mut vertices, &mut indices);
+        add_sphere([-1.40, 0.38, -1.80], 0.38, [0.80, 0.07, 0.07], 0.0, 0.85, 0.0, 128, 128, &mut vertices, &mut indices);
         // Back-right: brushed steel
-        add_sphere([1.40, 0.38, -1.80], 0.38, [0.70, 0.70, 0.75], 1.0, 0.40, 0.0, 32, 32, &mut vertices, &mut indices);
+        add_sphere([1.40, 0.38, -1.80], 0.38, [0.70, 0.70, 0.75], 1.0, 0.40, 0.0, 128, 128, &mut vertices, &mut indices);
         // Front-left: small glass
-        add_sphere([-0.60, 0.22, 1.40], 0.22, [0.85, 1.00, 0.90], 0.0, 0.02, 0.95, 32, 32, &mut vertices, &mut indices);
+        add_sphere([-0.60, 0.22, 1.40], 0.22, [0.85, 1.00, 0.90], 0.0, 0.02, 0.95, 128, 128, &mut vertices, &mut indices);
         // Front-right: blue diffuse
-        add_sphere([0.60, 0.22, 1.40], 0.22, [0.05, 0.20, 0.90], 0.0, 0.60, 0.0, 32, 32, &mut vertices, &mut indices);
+        add_sphere([0.60, 0.22, 1.40], 0.22, [0.05, 0.20, 0.90], 0.0, 0.60, 0.0, 128, 128, &mut vertices, &mut indices);
 
         Scene {
             vertices,
