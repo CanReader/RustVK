@@ -153,30 +153,20 @@ impl Scene {
         // Perfect white floor
         add_floor(6.0, 0.0, [1.0, 1.0, 1.0], 0.55, &mut vertices, &mut indices);
 
-        // Glass spheres: (center, radius, albedo tint)
-        // All are dielectric (metallic=0), perfect glass surface (roughness=0),
-        // near-fully transmissive (transmission=0.95).
-        // The tint color is subtle — glass passes most light through.
-        let spheres: &[([f32; 3], f32, [f32; 3])] = &[
-            ([  0.00, 0.80,  0.00], 0.80, [0.85, 1.00, 0.98]),  // center — largest, pale cyan
-            ([ -2.00, 0.50,  0.30], 0.50, [1.00, 0.70, 0.70]),  // left, coral
-            ([  2.00, 0.50,  0.30], 0.50, [0.70, 0.85, 1.00]),  // right, sky blue
-            ([ -1.20, 0.35, -1.60], 0.35, [0.80, 0.70, 1.00]),  // back-left, lavender
-            ([  1.20, 0.35, -1.60], 0.35, [1.00, 0.88, 0.60]),  // back-right, amber
-            ([ -0.55, 0.22,  1.20], 0.22, [0.70, 1.00, 0.80]),  // front-left, mint
-            ([  0.55, 0.22,  1.20], 0.22, [1.00, 0.75, 0.90]),  // front-right, rose
-        ];
-
-        for &(center, radius, color) in spheres {
-            add_sphere(
-                center, radius, color,
-                0.0,  // metallic  — glass is a dielectric
-                0.04, // roughness — very smooth glass
-                0.95, // transmission
-                32, 32,
-                &mut vertices, &mut indices,
-            );
-        }
+        // Center: large chrome mirror sphere — clearly shows environment reflections
+        add_sphere([0.0, 0.90, 0.0], 0.90, [0.96, 0.96, 0.96], 1.0, 0.02, 0.0, 32, 32, &mut vertices, &mut indices);
+        // Left: glass sphere
+        add_sphere([-2.20, 0.55, 0.0], 0.55, [0.90, 0.97, 1.00], 0.0, 0.02, 0.95, 32, 32, &mut vertices, &mut indices);
+        // Right: gold metal
+        add_sphere([2.20, 0.55, 0.0], 0.55, [1.00, 0.76, 0.33], 1.0, 0.12, 0.0, 32, 32, &mut vertices, &mut indices);
+        // Back-left: red matte diffuse
+        add_sphere([-1.40, 0.38, -1.80], 0.38, [0.80, 0.07, 0.07], 0.0, 0.85, 0.0, 32, 32, &mut vertices, &mut indices);
+        // Back-right: brushed steel
+        add_sphere([1.40, 0.38, -1.80], 0.38, [0.70, 0.70, 0.75], 1.0, 0.40, 0.0, 32, 32, &mut vertices, &mut indices);
+        // Front-left: small glass
+        add_sphere([-0.60, 0.22, 1.40], 0.22, [0.85, 1.00, 0.90], 0.0, 0.02, 0.95, 32, 32, &mut vertices, &mut indices);
+        // Front-right: blue diffuse
+        add_sphere([0.60, 0.22, 1.40], 0.22, [0.05, 0.20, 0.90], 0.0, 0.60, 0.0, 32, 32, &mut vertices, &mut indices);
 
         Scene {
             vertices,
@@ -189,27 +179,11 @@ impl Scene {
                 45.0,
                 1280.0 / 720.0,
             ),
-            point_lights: vec![
-                PointLight {
-                    position:  [6.0, 8.0, 5.0],
-                    color:     [1.0, 0.95, 0.85],
-                    intensity: 300.0,
-                },
-                PointLight {
-                    position:  [-5.0, 3.0, 2.0],
-                    color:     [0.5, 0.7, 1.0],
-                    intensity: 100.0,
-                },
-                PointLight {
-                    position:  [2.0, -2.0, -6.0],
-                    color:     [0.9, 0.3, 1.0],
-                    intensity: 50.0,
-                },
-            ],
+            point_lights: vec![],
             dir_light: Some(DirectionalLight {
                 direction: [-0.3, -0.7, -0.5],
                 color:     [1.0, 0.98, 0.90],
-                intensity: 1.5,
+                intensity: 2.5,
             }),
             model_rotation: 0.0,
         }
