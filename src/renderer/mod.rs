@@ -457,13 +457,9 @@ impl VulkanRenderer {
             _pad:              [0.0; 2],
         };
 
-        // Update this frame's UBO buffer
+        // Update this frame's UBO buffer contents only — no descriptor update needed
+        // because each frame already has its own descriptor set pointing to its own buffer.
         self.rt_ubo_buffers[frame].update_uniform(&self.device, &ubo)?;
-
-        // Re-point descriptor binding 3 to this frame's buffer
-        if let Some(rtr) = &self.rt_resources {
-            rtr.update_ubo_descriptor(&self.device.device, &self.rt_ubo_buffers[frame]);
-        }
         Ok(())
     }
 
@@ -471,7 +467,7 @@ impl VulkanRenderer {
         &self,
         cb:          vk::CommandBuffer,
         image_index: usize,
-        _frame:      usize,
+        frame:       usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let rt_loader  = self.device.rt_pipeline_loader.as_ref().ok_or("no RT loader")?;
         let rt_pipe    = self.rt_pipeline.as_ref().ok_or("no rt_pipeline")?;
@@ -482,7 +478,7 @@ impl VulkanRenderer {
         let begin_info = vk::CommandBufferBeginInfo { ..Default::default() };
         unsafe { self.device.device.begin_command_buffer(cb, &begin_info)?; }
 
-        // Bind RT pipeline + descriptor set
+        // Bind RT pipeline + this frame's descriptor set
         unsafe {
             self.device.device.cmd_bind_pipeline(
                 cb, vk::PipelineBindPoint::RAY_TRACING_KHR, rt_pipe.pipeline,
@@ -492,7 +488,7 @@ impl VulkanRenderer {
                 vk::PipelineBindPoint::RAY_TRACING_KHR,
                 rt_pipe.pipeline_layout,
                 0,
-                &[rt_res.descriptor_set],
+                &[rt_res.descriptor_sets[frame]],
                 &[],
             );
         }

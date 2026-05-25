@@ -3,8 +3,9 @@ use super::device::VulkanDevice;
 use super::buffer::VulkanBuffer;
 use super::acceleration_structure::AccelerationStructure;
 use super::command::VulkanCommandPool;
+use super::sync::MAX_FRAMES_IN_FLIGHT;
 
-/// RGBA32F storage images and the RT descriptor set.
+/// RGBA32F storage images and the RT descriptor sets (one per frame in flight).
 pub struct RtResources {
     pub accum_image:      vk::Image,
     pub accum_image_view: vk::ImageView,
@@ -14,9 +15,9 @@ pub struct RtResources {
     pub out_image_view: vk::ImageView,
     out_memory:         vk::DeviceMemory,
 
-    pub descriptor_pool:   vk::DescriptorPool,
-    pub descriptor_layout: vk::DescriptorSetLayout,
-    pub descriptor_set:    vk::DescriptorSet,
+    pub descriptor_pool:    vk::DescriptorPool,
+    pub descriptor_layout:  vk::DescriptorSetLayout,
+    pub descriptor_sets:    Vec<vk::DescriptorSet>,  // one per frame in flight
 
     #[allow(dead_code)]
     pub extent: vk::Extent2D,
@@ -143,15 +144,16 @@ impl RtResources {
             device.device.create_descriptor_set_layout(&layout_info, None)?
         };
 
-        // ── Descriptor pool ───────────────────────────────────────────────────
+        // ── Descriptor pool — enough for MAX_FRAMES_IN_FLIGHT sets ───────────
+        let count = MAX_FRAMES_IN_FLIGHT as u32;
         let pool_sizes = [
-            vk::DescriptorPoolSize { ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR, descriptor_count: 1 },
-            vk::DescriptorPoolSize { ty: vk::DescriptorType::STORAGE_IMAGE,              descriptor_count: 2 },
-            vk::DescriptorPoolSize { ty: vk::DescriptorType::UNIFORM_BUFFER,             descriptor_count: 1 },
-            vk::DescriptorPoolSize { ty: vk::DescriptorType::STORAGE_BUFFER,             descriptor_count: 2 },
+            vk::DescriptorPoolSize { ty: vk::DescriptorType::ACCELERATION_STRUCTURE_KHR, descriptor_count: count },
+            vk::DescriptorPoolSize { ty: vk::DescriptorType::STORAGE_IMAGE,              descriptor_count: count * 2 },
+            vk::DescriptorPoolSize { ty: vk::DescriptorType::UNIFORM_BUFFER,             descriptor_count: count },
+            vk::DescriptorPoolSize { ty: vk::DescriptorType::STORAGE_BUFFER,             descriptor_count: count * 2 },
         ];
         let pool_info = vk::DescriptorPoolCreateInfo {
-            max_sets:        1,
+            max_sets:        count,
             pool_size_count: pool_sizes.len() as u32,
             p_pool_sizes:    pool_sizes.as_ptr(),
             ..Default::default()
@@ -160,120 +162,97 @@ impl RtResources {
             device.device.create_descriptor_pool(&pool_info, None)?
         };
 
-        // ── Allocate descriptor set ───────────────────────────────────────────
+        // ── Allocate one descriptor set per frame in flight ───────────────────
+        let layouts: Vec<vk::DescriptorSetLayout> = vec![descriptor_layout; MAX_FRAMES_IN_FLIGHT];
         let alloc_info = vk::DescriptorSetAllocateInfo {
             descriptor_pool,
-            descriptor_set_count: 1,
-            p_set_layouts:        &descriptor_layout,
+            descriptor_set_count: count,
+            p_set_layouts:        layouts.as_ptr(),
             ..Default::default()
         };
-        let descriptor_set = unsafe {
-            device.device.allocate_descriptor_sets(&alloc_info)?[0]
+        let descriptor_sets = unsafe {
+            device.device.allocate_descriptor_sets(&alloc_info)?
         };
 
-        // ── Write descriptors (frame 0's UBO; we update binding 3 each frame) ─
-        // Binding 0: TLAS
+        // ── Write descriptors for each frame set ──────────────────────────────
+        // TLAS, both images, vertex and index buffers are the same across all sets.
+        // Only the UBO binding differs (each set points to its own UBO buffer).
         let tlas_handle = tlas.handle;
-        let mut write_tlas = vk::WriteDescriptorSetAccelerationStructureKHR {
-            acceleration_structure_count: 1,
-            p_acceleration_structures:    &tlas_handle,
-            ..Default::default()
-        };
-        let write0 = vk::WriteDescriptorSet {
-            p_next:            &mut write_tlas as *mut _ as *const std::ffi::c_void,
-            dst_set:           descriptor_set,
-            dst_binding:       0,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
-            ..Default::default()
-        };
 
-        // Binding 1: accum image
         let accum_info = vk::DescriptorImageInfo {
             image_view:   accum_image_view,
             image_layout: vk::ImageLayout::GENERAL,
             sampler:      vk::Sampler::null(),
         };
-        let write1 = vk::WriteDescriptorSet {
-            dst_set:           descriptor_set,
-            dst_binding:       1,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::STORAGE_IMAGE,
-            p_image_info:      &accum_info,
-            ..Default::default()
-        };
-
-        // Binding 2: out image
         let out_info = vk::DescriptorImageInfo {
             image_view:   out_image_view,
             image_layout: vk::ImageLayout::GENERAL,
             sampler:      vk::Sampler::null(),
         };
-        let write2 = vk::WriteDescriptorSet {
-            dst_set:           descriptor_set,
-            dst_binding:       2,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::STORAGE_IMAGE,
-            p_image_info:      &out_info,
-            ..Default::default()
-        };
-
-        // Binding 3: UBO — use first frame's buffer; update each frame via update_rt_ubo_descriptor
-        let ubo_info = vk::DescriptorBufferInfo {
-            buffer: ubo_buffers[0].buffer,
-            offset: 0,
-            range:  ubo_buffers[0].size,
-        };
-        let write3 = vk::WriteDescriptorSet {
-            dst_set:           descriptor_set,
-            dst_binding:       3,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::UNIFORM_BUFFER,
-            p_buffer_info:     &ubo_info,
-            ..Default::default()
-        };
-
-        // Binding 4: vertex SSBO
         let vb_info = vk::DescriptorBufferInfo {
-            buffer: vertex_buf.buffer,
-            offset: 0,
-            range:  vertex_buf.size,
+            buffer: vertex_buf.buffer, offset: 0, range: vertex_buf.size,
         };
-        let write4 = vk::WriteDescriptorSet {
-            dst_set:           descriptor_set,
-            dst_binding:       4,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::STORAGE_BUFFER,
-            p_buffer_info:     &vb_info,
-            ..Default::default()
-        };
-
-        // Binding 5: index SSBO
         let ib_info = vk::DescriptorBufferInfo {
-            buffer: index_buf.buffer,
-            offset: 0,
-            range:  index_buf.size,
-        };
-        let write5 = vk::WriteDescriptorSet {
-            dst_set:           descriptor_set,
-            dst_binding:       5,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::STORAGE_BUFFER,
-            p_buffer_info:     &ib_info,
-            ..Default::default()
+            buffer: index_buf.buffer,  offset: 0, range: index_buf.size,
         };
 
-        unsafe {
-            device.device.update_descriptor_sets(
-                &[write0, write1, write2, write3, write4, write5],
-                &[],
-            );
+        for (i, &set) in descriptor_sets.iter().enumerate() {
+            let mut write_tlas = vk::WriteDescriptorSetAccelerationStructureKHR {
+                acceleration_structure_count: 1,
+                p_acceleration_structures:    &tlas_handle,
+                ..Default::default()
+            };
+            let ubo_info = vk::DescriptorBufferInfo {
+                buffer: ubo_buffers[i].buffer,
+                offset: 0,
+                range:  ubo_buffers[i].size,
+            };
+            let writes = [
+                vk::WriteDescriptorSet {
+                    p_next:            &mut write_tlas as *mut _ as *const std::ffi::c_void,
+                    dst_set:           set,
+                    dst_binding:       0,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set:           set, dst_binding: 1,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::STORAGE_IMAGE,
+                    p_image_info:      &accum_info,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set:           set, dst_binding: 2,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::STORAGE_IMAGE,
+                    p_image_info:      &out_info,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set:           set, dst_binding: 3,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::UNIFORM_BUFFER,
+                    p_buffer_info:     &ubo_info,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set:           set, dst_binding: 4,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::STORAGE_BUFFER,
+                    p_buffer_info:     &vb_info,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set:           set, dst_binding: 5,
+                    descriptor_count:  1,
+                    descriptor_type:   vk::DescriptorType::STORAGE_BUFFER,
+                    p_buffer_info:     &ib_info,
+                    ..Default::default()
+                },
+            ];
+            unsafe { device.device.update_descriptor_sets(&writes, &[]) };
         }
 
         Ok(Self {
@@ -285,29 +264,10 @@ impl RtResources {
             out_memory,
             descriptor_pool,
             descriptor_layout,
-            descriptor_set,
+            descriptor_sets,
             extent,
             device_ref: device.device.clone(),
         })
-    }
-
-    /// Re-point binding 3 (UBO) to the buffer for the current frame.
-    pub fn update_ubo_descriptor(&self, device: &ash::Device, ubo_buf: &VulkanBuffer) {
-        let buf_info = vk::DescriptorBufferInfo {
-            buffer: ubo_buf.buffer,
-            offset: 0,
-            range:  ubo_buf.size,
-        };
-        let write = vk::WriteDescriptorSet {
-            dst_set:           self.descriptor_set,
-            dst_binding:       3,
-            dst_array_element: 0,
-            descriptor_count:  1,
-            descriptor_type:   vk::DescriptorType::UNIFORM_BUFFER,
-            p_buffer_info:     &buf_info,
-            ..Default::default()
-        };
-        unsafe { device.update_descriptor_sets(&[write], &[]) };
     }
 
     fn create_storage_image(

@@ -239,9 +239,11 @@ impl RtPipeline {
 
         let sbt_address = sbt_buffer.device_address(&device.device);
 
+        // Raygen: stride must equal size (spec VUID-vkCmdTraceRaysKHR-size-04023).
+        // There is always exactly one raygen shader so stride == size == rgen_region_size.
         let rgen_region = vk::StridedDeviceAddressRegionKHR {
             device_address: sbt_address,
-            stride:         handle_stride as vk::DeviceSize,
+            stride:         rgen_region_size as vk::DeviceSize,
             size:           rgen_region_size as vk::DeviceSize,
         };
         let miss_region = vk::StridedDeviceAddressRegionKHR {
